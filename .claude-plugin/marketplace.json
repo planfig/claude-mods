@@ -1,0 +1,14 @@
+{
+  "name": "planfig-mods",
+  "owner": { "name": "planfig", "url": "https://github.com/planfig" },
+  "metadata": { "description": "Claude Code mods in one pack: an orchestrator/worker flow that spends as little human attention as possible, plus small everyday skills." },
+  "plugins": [
+    {
+      "name": "planfig-mods",
+      "source": "./plugins/planfig-mods",
+      "description": "savvy-flow-plus orchestrator with five tiered workers, plus codex, caca-preco and publicar-site skills.",
+      "version": "1.0.0",
+      "category": "skill"
+    }
+  ]
+}

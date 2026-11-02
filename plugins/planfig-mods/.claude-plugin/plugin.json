@@ -1,0 +1,10 @@
+{
+  "name": "planfig-mods",
+  "version": "1.0.0",
+  "description": "One pack of Claude Code mods: the savvy-flow-plus orchestrator (plans, delegates to five tiered workers, keeps a resumable ticket ledger, reviews) with minimal-attention rules adapted from DeepSeek's dsh-superagent, plus codex, caca-preco and publicar-site skills.",
+  "author": { "name": "planfig", "url": "https://github.com/planfig" },
+  "homepage": "https://github.com/planfig/claude-mods",
+  "repository": "https://github.com/planfig/claude-mods",
+  "license": "MIT",
+  "keywords": ["skill", "orchestration", "subagents", "attention", "portugal"]
+}

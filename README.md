@@ -12,8 +12,6 @@ A pack of [Claude Code](https://claude.com/claude-code) mods in one install, bui
 | --- | --- | --- |
 | **savvy-flow-plus** | `/planfig-mods:savvy-flow-plus <task>` | Orchestrator: plans, owns design, delegates to five tiered worker subagents, keeps a resumable ticket ledger, reviews their work adversarially |
 | **codex** | `/planfig-mods:codex <request>` | Asks OpenAI's Codex CLI for a second opinion, a review or a delegated task |
-| **caca-preco** | `/planfig-mods:caca-preco <item>` | Finds the best purchase price in Portugal, with real listing links and scam flags |
-| **publicar-site** | `/planfig-mods:publicar-site` | Publishes a page or a built site and hands back a public link |
 | **Minimal-attention rules** | [`templates/CLAUDE.md`](templates/CLAUDE.md) | Paste into `~/.claude/CLAUDE.md` so every session works this way |
 
 ## Install
@@ -63,8 +61,6 @@ Um pacote de mods para o Claude Code, num só lugar, com um princípio: **gastar
 **O que vem dentro:**
 - **savvy-flow-plus**: um orquestrador que planeja, passa o trabalho para cinco ajudantes (subagentes) de níveis diferentes, guarda as tarefas em `.claude/tickets.md` para outra sessão continuar e confere tudo antes de entregar.
 - **codex**: pede uma segunda opinião ao Codex, da OpenAI.
-- **caca-preco**: procura o melhor preço em Portugal, com o link de cada anúncio.
-- **publicar-site**: publica uma página e devolve um link público.
 - **Regras de atenção mínima**: cole [`templates/CLAUDE.pt-BR.md`](templates/CLAUDE.pt-BR.md) no seu `~/.claude/CLAUDE.md`.
 
 **Instalar:** no Claude Code, rode `/plugin marketplace add planfig/claude-mods` e depois `/plugin install planfig-mods@planfig-mods`.

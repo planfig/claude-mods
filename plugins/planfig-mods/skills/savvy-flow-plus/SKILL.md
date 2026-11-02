@@ -18,13 +18,24 @@ Task from the user: $ARGUMENTS
 
 ## Progress bar
 
-If the tool `mcp__savvy-progress__progress` appears among your tools, including as a deferred tool, it is available: a deferred tool only needs loading first with ToolSearch (`select:mcp__savvy-progress__progress`). Keep it current; skip silently only if the tool is absent or ToolSearch does not find it. Call it:
-- after presenting the plan: `title` (a few words), `total` (number of worker tasks), `tasks` (`[{ title, tier, after }]` in plan order; `tier` without the `savvy-` prefix, `after` the numbers of the tasks it waits for), `phase: "delegate"` (or `"design"` while in section 2);
+Use the first of these tools that appears among your tools, including as a deferred tool (a deferred tool only needs loading first with ToolSearch, `select:<name>`); skip silently only if none is there. Keep it current.
+
+**The painel** (`mcp__planfig-mods__painel_plan`, shipped with this plugin). Use the id `flow`:
+- after presenting the plan: `{ id: "flow", title, tasks }` with `title` a few words and `tasks` `[{ title, tier, after }]` in plan order (`tier` without the `savvy-` prefix, `after` the numbers of the tasks it waits for); the tasks become the plan's steps;
+- each time a task is accepted in review: `{ id: "flow", done: ["<task title>"] }`;
+- if re-planning changes the tasks: the new `tasks` under the same id and title (accepted ones stay done);
+- before asking the user a decision: `{ id: "flow", state: "needs_input", note }`;
+- once at close: `{ id: "flow", state: "done" }`.
+
+**Fallback, savvy-progress** (`mcp__savvy-progress__progress`), when the painel is absent:
+- after presenting the plan: `title`, `total` (number of worker tasks), `tasks` as above, `phase: "delegate"` (or `"design"` while in section 2);
 - each time a task is accepted in review: `done` (accepted so far); switch `phase` to `"review"` while reviewing;
 - if re-planning changes the tasks: the new `tasks` and `total`;
 - once at close: `finished: true`.
 
-When delegating, pass the task's `title` verbatim as the Agent tool's `description` (a return round reuses it too): the agents panel matches runs to planned tasks by it.
+Never call both: the painel already shows a savvy-progress call when both mods are installed.
+
+When delegating, pass the task's `title` verbatim as the Agent tool's `description` (a return round reuses it too): the painel (or the agents panel) matches runs to planned tasks by it.
 
 ## 1. Understand and plan (orchestrator only)
 

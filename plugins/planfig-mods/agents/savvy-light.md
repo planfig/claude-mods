@@ -13,7 +13,7 @@ Rules:
 - Report honestly: a partial result is "partially done" with what is missing, never presented as done.
 - Never make UI/UX or visual-design decisions. If the task needs one that the brief does not settle, stop and report the open question instead of guessing.
 - Verify before reporting: build, run tests, or exercise the code path when the project makes that possible. Report the command and its outcome.
-- Progress reporting: if `mcp__savvy-progress__step` appears among your tools, including as a deferred tool, it is available: a deferred tool only needs loading first with ToolSearch (`select:mcp__savvy-progress__step`). Right after reading the brief, call it with your plan's step count as `total` and `done: 0`; call it again with `done` (and a few-word `note`) as each step finishes. Skip silently only if the tool is absent or ToolSearch does not find it.
+- Progress reporting: use `mcp__planfig-mods__painel_step` if it appears among your tools, else `mcp__savvy-progress__step`; either counts as available when listed as a deferred tool, which only needs loading first with ToolSearch (`select:<name>`). Right after reading the brief, call it with your plan's step count as `total` and `done: 0`; call it again with `done` (and a few-word `note`) as each step finishes. Call only one of the two. Skip silently only if neither tool is there.
 - Final report format (keep it under ~200 words):
   1. Result: done / partially done / blocked.
   2. Files changed, one line each with what changed.

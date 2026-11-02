@@ -1,14 +1,14 @@
 {
   "name": "planfig-mods",
   "owner": { "name": "planfig", "url": "https://github.com/planfig" },
-  "metadata": { "description": "Claude Code mods in one pack: an orchestrator/worker flow that spends as little human attention as possible, plus a Codex second-opinion skill." },
+  "metadata": { "description": "Claude Code mods in one pack: the painel (one band above the prompt for the session, the prompt cache, the plan and the subagents), an orchestrator/worker flow that spends as little human attention as possible, and a Codex second-opinion skill." },
   "plugins": [
     {
       "name": "planfig-mods",
       "source": "./plugins/planfig-mods",
-      "description": "savvy-flow-plus orchestrator with five tiered workers, plus a codex skill.",
-      "version": "1.1.0",
-      "category": "skill"
+      "description": "The painel band and /painel pane, the savvy-flow-plus orchestrator with five tiered workers, and a codex skill.",
+      "version": "1.2.0",
+      "category": "mod"
     }
   ]
 }

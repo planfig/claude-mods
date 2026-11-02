@@ -1,10 +1,45 @@
 {
   "name": "planfig-mods",
-  "version": "1.1.0",
-  "description": "One pack of Claude Code mods: the savvy-flow-plus orchestrator (plans, delegates to five tiered workers, keeps a resumable ticket ledger, reviews) with minimal-attention rules adapted from DeepSeek's dsh-superagent, plus a codex skill.",
+  "version": "1.2.0",
+  "description": "One pack of Claude Code mods: the painel (one band above the prompt with turn, speed, cost, context, prompt-cache countdown, plan and subagents, plus a /painel detail pane), the savvy-flow-plus orchestrator with five tiered workers, and a codex skill.",
   "author": { "name": "planfig", "url": "https://github.com/planfig" },
   "homepage": "https://github.com/planfig/claude-mods",
   "repository": "https://github.com/planfig/claude-mods",
   "license": "MIT",
-  "keywords": ["skill", "orchestration", "subagents", "attention"]
+  "keywords": ["mod", "band", "prompt-caching", "cost", "progress", "skill", "orchestration", "subagents", "attention"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Painel language",
+      "description": "auto follows Claude Code's language setting, then the system locale; en or pt",
+      "default": "auto",
+      "options": ["auto", "en", "pt"]
+    },
+    "ttl": {
+      "type": "string",
+      "title": "Prompt cache lifetime",
+      "description": "auto follows Claude Code's rules (FORCE_PROMPT_CACHING_5M, CLAUDE_CODE_PROMPT_CACHE_TTL, promptCacheTtl, ENABLE_PROMPT_CACHING_1H, then 1 hour on a subscription and 5 minutes otherwise) and corrects itself from request timing; 5m or 1h pins it",
+      "default": "auto",
+      "options": ["auto", "5m", "1h"]
+    },
+    "toast": {
+      "type": "boolean",
+      "title": "Cache toasts",
+      "description": "A toast when the prompt cache enters its last sixth and when it expires (prompts of 20k tokens or more, never while a turn runs)",
+      "default": true
+    },
+    "sounds": {
+      "type": "boolean",
+      "title": "Sounds",
+      "description": "Soft sounds when Claude asks a question, a plan step fails and a plan finishes",
+      "default": true
+    },
+    "rules": {
+      "type": "boolean",
+      "title": "Plan rule in the system prompt",
+      "description": "Tell Claude to report multi-step work with painel_plan",
+      "default": true
+    }
+  }
 }

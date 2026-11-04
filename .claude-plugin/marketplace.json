@@ -7,7 +7,7 @@
       "name": "planfig-mods",
       "source": "./plugins/planfig-mods",
       "description": "The painel band and /painel pane, the savvy-flow-plus orchestrator with five tiered workers, and a codex skill.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "category": "mod"
     }
   ]

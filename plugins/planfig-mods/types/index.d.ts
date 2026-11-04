@@ -70,7 +70,15 @@ export type CacheView = {
   turns: CacheTurn[]
 }
 
-export type Prefs = { isHidden: boolean; isPaneOpen: boolean }
+export type Prefs = {
+  isHidden: boolean
+  isPaneOpen: boolean
+  /** The pane folded to its header and plan, without the agent rows. */
+  isCompact?: boolean
+  isDoneCollapsed?: boolean
+  /** The plan (or agent run) the pane last opened itself for. */
+  autoOpenedFor?: string
+}
 
 declare module 'claude-code' {
   interface PluginState {

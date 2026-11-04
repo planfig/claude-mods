@@ -58,7 +58,16 @@ async function request($: Engine, _on: On, turnId: string, read = 90_000) {
   }
 }
 
-const texts = async (ui: { findAll: (q: { type: string }) => Promise<{ text?: string }[]> }) => (await ui.findAll({ type: 'Text' })).map(t => (t.text ?? '').replace(/ /g, ' ')).join(' | ')
+// Everything a drawing says: its texts, and on the desktop each Svg's alt and the words inside it.
+type Found = { text?: string; props: Record<string, unknown> }
+const texts = async (ui: { findAll: (q: { type: string }) => Promise<Found[]> }) => {
+  const words = (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '')
+  for (const s of await ui.findAll({ type: 'Svg' })) {
+    words.push(String(s.props.alt ?? ''))
+    words.push(...[...String(s.props.source ?? '').matchAll(/>([^<>]+)</g)].map(m => (m[1] ?? '').trim()).filter(w => w && !w.includes('{')))
+  }
+  return words.map(w => w.replace(/ /g, ' ').replace(/&amp;/g, '&')).join(' | ')
+}
 
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`${surface}: the top row shows turn, cost, context and the cache countdown`, async ($, on) => {
@@ -70,7 +79,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ plugin: P, surface, ...band() })
     const top = await texts(ui)
     expect(top).toContain('Turn')
-    expect(top).toContain('ctx')
+    expect(top).toMatch(surface === 'terminal' ? /ctx/ : /context 34%/)
     expect(top).toContain('34%')
     // 90k of 100k read from the cache; a subscription's cache lives an hour.
     expect(top).toContain('cache 90%')
@@ -99,15 +108,26 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const all = await texts(ui)
     expect(all).toContain('Ship it · CLI')
     expect(all).toContain('1/2')
-    expect(all).toContain('Light')
-    expect(all).toContain('Wire the CLI')
-    expect(all).toContain('1/3')
+    if (surface === 'terminal') {
+      expect(all).toContain('Light')
+      expect(all).toContain('Wire the CLI')
+      expect(all).toContain('1/3')
+    } else {
+      // The desktop draws the pill bar with a crew button; the agents sit in the pane, opened by itself.
+      expect((await ui.find({ key: 'painel-crew' }))?.props.label).toBe('×1')
+      const side = await $.ui.mount({ plugin: P, surface, ...pane })
+      const rows = await texts(side)
+      expect(rows).toContain('Wire the CLI')
+      expect(rows).toContain('1/3 · flags')
+      expect(rows).toContain('Light')
+      await side.unmount()
+    }
     await ui.unmount()
 
     // The worker finishes: still listed this turn, in green; gone from the band next turn, kept in the pane.
     await $.turn.complete({ answer: 'done', durationMs: 10, isAborted: false, turnId: 'w1', agentId: 'a1', reason: 'answer' } as never)
     const after = await $.ui.mount({ plugin: P, surface, ...band() })
-    expect(await after.find({ type: 'Text', text: /✓/ })).toBeDefined()
+    if (surface === 'terminal') expect(await after.find({ type: 'Text', text: /✓/ })).toBeDefined()
     await after.unmount()
     await $.turn.start({ text: 'next', turnId: 't2' } as never)
     const next = await $.ui.mount({ plugin: P, surface, ...band() })
@@ -117,7 +137,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const detail = await $.ui.mount({ plugin: P, surface, ...pane })
     const full = await texts(detail)
     expect(full).toContain('Wire the CLI')
-    expect(full).toContain('Ship it · 1/2')
+    expect(full).toContain('Ship it')
+    expect(full).toContain('1/2')
     await detail.unmount()
   })
 

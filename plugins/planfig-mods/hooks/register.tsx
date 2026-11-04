@@ -13,7 +13,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren } from 'claude-code'
 
-import type { AgentRun, CacheView, Plan, Prefs, Stats } from '../types'
+import type { AgentRun, CacheView, Plan, PlannedTask, Prefs, Stats } from '../types'
 import {
   accountOf,
   addToTurns,
@@ -43,6 +43,36 @@ import {
   windowOf,
 } from './model.ts'
 import type { Account, CacheEnv, CacheLevel, Sample, Ttl } from './model.ts'
+import {
+  ACCENT,
+  AGENT_H,
+  ALERT,
+  BAND_H,
+  CACHE,
+  CONTEXT,
+  DONE,
+  MONEY,
+  MONEY_ICON,
+  PLANNED_H,
+  SPEED,
+  SPEED_ICON,
+  TURN_ICON,
+  WARN,
+  agentSvg,
+  cacheIcon,
+  cacheTableSvg,
+  colorOf,
+  contextBar,
+  contextIcon,
+  crab,
+  costumeOf,
+  CRAB_CSS,
+  planRowSvg,
+  planSvg,
+  plannedSvg,
+  tilesHeight,
+  tilesSvg,
+} from './draw.ts'
 
 const P = 'planfig-mods'
 const PLAN_TOOL = 'mcp__planfig-mods__painel_plan'
@@ -65,15 +95,9 @@ const agents = atom({ plugin: 'planfig-mods', key: 'agents' } as const, [] as Ag
 const prefs = atom({ plugin: 'planfig-mods', key: 'prefs' } as const, { isHidden: false, isPaneOpen: false } as Prefs)
 const now = atom({ plugin: 'planfig-mods', key: 'now' } as const, 0)
 
-const ACCENT = '#8f8cf4'
-const DONE = '#5fbf8f'
-const MONEY = '#4caf6e'
-const SPEED = '#8b8cf8'
-const CONTEXT = '#5fa8d3'
-const CACHE = '#4fb3a9'
-const WARN = '#e2a94e'
-const ALERT = '#e0846b'
-const TIER_COLOR: Record<string, string> = { fable: '#7F77DD', heavy: '#D85A30', careful: '#BA7517', medium: '#378ADD', light: '#1D9E75' }
+const MUTED_TEXT = '#8a8f8c'
+// What each savvy tier runs on, for planned tasks with no run yet.
+const TIER_MODEL: Record<string, string> = { fable: 'Fable · high', heavy: 'Opus · xhigh', careful: 'Opus · high', medium: 'Opus · medium', light: 'Opus · low' }
 
 // Responses shorter than this are mostly tool-call stubs; one that arrived in one burst cannot be timed.
 const MIN_TOKENS = 20
@@ -127,6 +151,9 @@ const STRINGS = {
     closed: 'Painel closed.',
     hidden: 'Band hidden (/painel band shows it again).',
     shown: 'Band shown.',
+    cost: 'Cost', tokens: 'Tokens', time: 'Time', running: 'Running', finished: 'Finished', plannedH: 'Planned',
+    collapse: 'Collapse', expand: 'Expand', tasks: 'Tasks', steps: 'Steps', doneWord: 'Done', waiting: 'Waiting', failed: 'failed', after: 'after',
+    left: 'left', lastHit: 'last hit', perTurn: 'Cache per turn', turnCol: 'turn', painel: 'Painel',
   },
   pt: {
     turn: 'Turno',
@@ -161,6 +188,9 @@ const STRINGS = {
     closed: 'Painel fechado.',
     hidden: 'Faixa escondida (/painel band mostra de novo).',
     shown: 'Faixa visível.',
+    cost: 'Custo', tokens: 'Tokens', time: 'Tempo', running: 'Rodando', finished: 'Concluídos', plannedH: 'Planejados',
+    collapse: 'Recolher', expand: 'Expandir', tasks: 'Tarefas', steps: 'Passos', doneWord: 'Pronto', waiting: 'Aguardando', failed: 'falhou', after: 'depois de',
+    left: 'restante', lastHit: 'último acerto', perTurn: 'Cache por turno', turnCol: 'turno', painel: 'Painel',
   },
 }
 const tr = () => STRINGS[lang]
@@ -245,6 +275,7 @@ async function applyPlan($: EngineInterface, raw: Record<string, unknown>): Prom
   await update($, plans, list => [...list.filter(p => p.id !== id), made].slice(-20))
   if (made.state === 'done' && before?.state !== 'done') play($, 'done')
   if (made.state === 'error' && before?.state !== 'error') play($, 'error')
+  if (made.tasks.length > 0 && made.state !== 'done') await autoOpen($, `plan:${made.id}:${made.startedAt}`)
   const { done, total, active } = progressOf(made)
   return { result: `${id}: ${done}/${total}, ${made.state}${active && made.state !== 'done' ? `, active "${active.title}"` : ''}` }
 }
@@ -330,6 +361,30 @@ async function togglePane($: EngineInterface, force?: boolean) {
   }
   await update($, prefs, p => ({ ...p, isPaneOpen: isOpen }))
   return isOpen
+}
+
+/** The plan's worker tasks no agent has started yet, numbered from 1 in plan order. */
+function plannedLeft(plan: Plan, list: readonly AgentRun[]): (PlannedTask & { n: number })[] {
+  if (plan.state === 'done') return []
+  const started = new Set(list.map(a => a.description.trim().toLowerCase()))
+  return plan.tasks.map((task, i) => ({ ...task, n: i + 1 })).filter(task => !started.has(task.title.trim().toLowerCase()))
+}
+
+/** The crew without a plan: one crab per agent of this turn, walking while it works. */
+function crewSvg(list: readonly AgentRun[]): string {
+  const shown = list.slice(-10)
+  const W = Math.max(36, 36 * shown.length)
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="30" viewBox="0 0 ${W} 30">${CRAB_CSS}${shown
+    .map((a, i) => crab(i * 36, 0, costumeOf(a.type), a.status !== 'running', a.status === 'running', 1))
+    .join('')}${shown.map((a, i) => (a.status === 'running' ? `<circle cx="${i * 36 + 32}" cy="4" r="3" fill="${colorOf(tierOf(a.type) || 'other')}"/>` : '')).join('')}</svg>`
+}
+
+/** Opens the pane once per plan (or per session of agents) by itself, the way savvy-progress did. */
+async function autoOpen($: EngineInterface, key: string) {
+  const p = await read($, prefs)
+  if (p.autoOpenedFor === key || p.isPaneOpen) return
+  await update($, prefs, prev => ({ ...prev, autoOpenedFor: key }))
+  await togglePane($, true).catch(() => undefined)
 }
 
 // --- Register ----------------------------------------------------------------------------
@@ -552,6 +607,10 @@ export const register: Register = (on, options) => {
     }
     await update($, agents, list => [...list.filter(a => a.id !== run.id), run].slice(-200))
     await update($, now, () => at)
+    if (isSavvy(e.subagentType)) {
+      const p = shownPlan(await read($, plans), await read($, stats))
+      await autoOpen($, p && p.tasks.length ? `plan:${p.id}:${p.startedAt}` : `turn:${turn}`)
+    }
     return started
   })
 
@@ -611,9 +670,9 @@ export const register: Register = (on, options) => {
     const s = await read($, stats)
     const pref = await read($, prefs)
     if (e.props.hasSurvey || pref.isHidden || s.turn === 0) return next(e)
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const ui = $.ui.resolve(e)
+    const { Box, Text, Button } = ui
     const c = await read($, cache)
-    // Read to redraw on each tick; the time itself from the clock.
     await read($, now)
     const at = await $.clock.now()
     const allPlans = await read($, plans)
@@ -628,80 +687,123 @@ export const register: Register = (on, options) => {
     const cacheColor = frame ?? CACHE
     const hit = c.last ? `${Math.round(hitRatio(c.last) * 100)}%` : '—'
     const clock = e.props.isWorking ? '…' : left === null ? '—' : left === 0 ? t.expired : fmtClock(left)
+    const life = left === null ? 0 : left / (ttlMs(c.ttl) / 1000)
 
+    const plan = shownPlan(allPlans, s)
+    const running = allAgents.filter(a => a.status === 'running')
+    const visible = allAgents.filter(a => a.status === 'running' || a.turn === s.turn)
+    const crew = visible.length + (plan ? plannedLeft(plan, allAgents).length : 0)
+    const crewButton = crew > 0 ? <Button key="painel-crew" label={`×${crew}`} plain onPress={() => void togglePane($)} /> : null
+
+    const isDesktop = e.surface !== 'terminal' && 'Svg' in ui
+    const Svg = isDesktop && 'Svg' in ui ? ui.Svg : null
+    const icon = tier >= 3 ? 18 : 22
+    const ico = (key: string, source: string, alt: string, fallback: string, color: string) =>
+      Svg ? <Svg key={key} source={source} alt={alt} width={icon} height={icon} /> : <Text key={key} color={color}>{fallback}</Text>
     const item = (key: string, children: RenderChildren) => (
-      <Box key={key} flexDirection="row" columnGap={1} flexShrink={0}>
+      <Box key={key} flexDirection="row" alignItems="center" columnGap={1} flexShrink={0}>
         {children}
       </Box>
     )
 
     const top = (
       <Box key="top" flexDirection="row" alignItems="center" columnGap={tier >= 3 ? 1 : 2} flexWrap="nowrap" overflow="hidden">
-        {tier <= 3
-          ? item('turn', [<Text key="l" dimColor>{tier === 0 ? t.turn : '#'}</Text>, <Text key="v" bold>{String(s.turn)}</Text>])
-          : null}
-        {tier <= 2 ? item('speed', [<Text key="i" color={SPEED}>⚡</Text>, <Text key="v" bold>{s.speed === null ? '—' : `${s.speed} tok/s`}</Text>]) : null}
+        {tier <= 3 ? item('turn', [ico('i', TURN_ICON, 'turn', '#', MUTED_TEXT), ...(tier === 0 ? [<Text key="l" dimColor>{t.turn}</Text>] : []), <Text key="v" bold>{String(s.turn)}</Text>]) : null}
+        {tier <= 2 ? item('speed', [ico('i', SPEED_ICON, 'speed', '⚡', SPEED), <Text key="v" bold>{s.speed === null ? '—' : `${s.speed} tok/s`}</Text>]) : null}
         {item('cost', [
+          ico('i', MONEY_ICON, 'cost', '$', MONEY),
           <Text key="t" bold color={MONEY}>{s.turnCost === null ? '—' : usd(s.turnCost)}</Text>,
           ...(tier <= 1 ? [<Text key="s" dimColor>|</Text>, <Text key="v" bold>{usd(s.total)}</Text>] : []),
         ])}
-        {item('ctx', [<Text key="l" color={CONTEXT}>{t.context}</Text>, <Text key="v" bold>{`${s.context}%`}</Text>])}
         {item('cache', [
-          <Text key="i" color={cacheColor}>⧗</Text>,
+          ico('i', cacheIcon(cacheColor, life), 'cache', '⧗', cacheColor),
           ...(tier <= 2 ? [<Text key="h" dimColor>{`${t.cache} ${hit}`}</Text>] : []),
           <Text key="v" bold color={frame ?? undefined}>{clock}</Text>,
         ])}
         <Box key="gap" flexGrow={1} flexShrink={1} />
+        {item('ctx', [
+          ...(Svg ? [<Svg key="i" source={contextIcon(s.context)} alt="context" width={icon} height={icon} />] : [<Text key="i" color={CONTEXT}>{t.context}</Text>]),
+          ...(Svg && tier === 0 ? [<Svg key="b" source={contextBar(s.context)} alt={`context ${s.context}%`} width={80} height={6} />] : []),
+          <Text key="v" bold>{`${s.context}%`}</Text>,
+        ])}
         <Button key="painel-open" label="▤" plain dimColor onPress={() => void togglePane($)} />
         <Button key="painel-hide" label="×" role="dismiss" plain dimColor onPress={() => update($, prefs, p => ({ ...p, isHidden: true }))} />
       </Box>
     )
 
-    // The lower part: only while there is a plan or subagents.
-    const plan = shownPlan(allPlans, s)
-    const visible = allAgents.filter(a => a.status === 'running' || a.turn === s.turn)
     const rows: RenderChildren[] = []
     if (plan) {
       const { done, total, ratio, active } = progressOf(plan)
-      const color = plan.state === 'done' ? DONE : plan.state === 'error' ? ALERT : plan.state === 'needs_input' ? WARN : ACCENT
-      const glyph = plan.state === 'done' ? '✓' : plan.state === 'error' ? '✗' : plan.state === 'needs_input' ? '?' : '●'
-      const count = `${done}/${total}`
-      const activeText = plan.state === 'done' ? '' : (plan.note && plan.state !== 'running' ? plan.note : active?.title) ?? ''
-      const room = cols - count.length - 6
-      const barW = Math.max(0, Math.min(24, Math.floor(room / 3)))
-      const textW = Math.max(8, room - barW - 2)
-      const line = fit(activeText ? `${plan.title} · ${activeText}` : plan.title, textW)
+      const label =
+        plan.state === 'done' ? t.doneWord : plan.state === 'needs_input' ? t.waiting : `${plan.tasks.length ? t.tasks : t.steps} ${done}/${total}`
+      if (Svg) {
+        // As savvy-progress drew it: one drawing for title, pill bar, percent and crab; the crew count opens the pane.
+        const W = Math.max(180, Math.min(1600, cols * 8 - 70))
+        const activeTitle = plan.state === 'done' ? '' : (plan.note && plan.state !== 'running' ? plan.note : active?.title) ?? ''
+        rows.push(
+          <Box key="plan" flexDirection="row" alignItems="center" gap={1}>
+            <Svg
+              source={planRowSvg({ ...plan, title: activeTitle ? `${plan.title} · ${activeTitle}` : plan.title }, W, label, done, total, running.length, running.length > 0 || !!e.props.isWorking)}
+              alt={`${plan.title}: ${label}, ${Math.round(ratio * 100)}%`}
+              width={W}
+              height={BAND_H}
+            />
+            {crewButton}
+            <Button key="painel-plan-x" label="✕" plain role="dismiss" onPress={() => update($, plans, list => list.map(p => (p.id === plan.id ? { ...p, state: 'done' as const, endedAt: 0 } : p)))} />
+          </Box>,
+        )
+      } else {
+        const color = plan.state === 'done' ? DONE : plan.state === 'error' ? ALERT : plan.state === 'needs_input' ? WARN : ACCENT
+        const glyph = plan.state === 'done' ? '✓' : plan.state === 'error' ? '✗' : plan.state === 'needs_input' ? '?' : '●'
+        const activeText = plan.state === 'done' ? '' : (plan.note && plan.state !== 'running' ? plan.note : active?.title) ?? ''
+        const room = cols - label.length - 12
+        const barW = Math.max(0, Math.min(24, Math.floor(room / 3)))
+        const textW = Math.max(8, room - barW - 2)
+        rows.push(
+          <Box key="plan" flexDirection="row" columnGap={1} flexWrap="nowrap" overflow="hidden">
+            <Text color={color}>{glyph}</Text>
+            <Text wrap="truncate-end">{fit(activeText ? `${plan.title} · ${activeText}` : plan.title, textW)}</Text>
+            {barW >= 6 ? <Text color={color}>{bar(ratio, barW)}</Text> : null}
+            <Text bold>{label}</Text>
+            <Text dimColor>{`${Math.round(ratio * 100)}%`}</Text>
+            {crewButton}
+          </Box>,
+        )
+      }
+    } else if (crewButton && Svg) {
       rows.push(
-        <Box key="plan" flexDirection="row" columnGap={1} flexWrap="nowrap" overflow="hidden">
-          <Text color={color}>{glyph}</Text>
-          <Text wrap="truncate-end">{line}</Text>
-          <Text bold>{count}</Text>
-          {barW >= 6 ? <Text color={color}>{bar(ratio, barW)}</Text> : null}
+        <Box key="crew" flexDirection="row" alignItems="center" gap={1}>
+          <Svg source={crewSvg(visible)} alt={`${visible.length} agents`} width={Math.min(36 * visible.length, 360)} height={30} />
+          {crewButton}
         </Box>,
       )
     }
-    const room = Math.max(1, (e.props.maxRows || 8) - 1 - rows.length - (frame ? 2 : 0))
-    const shown = visible.length > room ? visible.slice(-(room - 1)) : visible
-    for (const a of shown) {
-      const color = a.status === 'done' ? DONE : a.status === 'failed' ? ALERT : (TIER_COLOR[tierOf(a.type)] ?? ACCENT)
-      const glyph = a.status === 'done' ? '✓' : a.status === 'failed' ? '✗' : '●'
-      const steps = a.stepTotal ? `${a.stepDone ?? 0}/${a.stepTotal}` : a.requests ? `${a.requests} ${t.reqs}` : ''
-      const tail = [steps, usd(a.costUsd)].filter(Boolean).join(' · ')
-      const word = tierWord(a.type)
-      const taskW = Math.max(6, cols - word.length - tail.length - 8)
-      rows.push(
-        <Box key={`a:${a.id}`} flexDirection="row" columnGap={1} flexWrap="nowrap" overflow="hidden">
-          <Text color={color}>{` ${glyph}`}</Text>
-          <Text color={color} bold>{word}</Text>
-          <Text wrap="truncate-end" dimColor={a.status !== 'running'}>{fit(a.description || a.type, taskW)}</Text>
-          <Text dimColor>{tail}</Text>
-        </Box>,
-      )
+
+    // The terminal lists the agents in the band; the desktop has them in the pane beside it.
+    if (!Svg) {
+      const room = Math.max(1, (e.props.maxRows || 8) - 1 - rows.length - (frame ? 2 : 0))
+      const shown = visible.length > room ? visible.slice(-(room - 1)) : visible
+      for (const a of shown) {
+        const color = a.status === 'done' ? DONE : a.status === 'failed' ? ALERT : colorOf(tierOf(a.type) || 'other')
+        const glyph = a.status === 'done' ? '✓' : a.status === 'failed' ? '✗' : '●'
+        const steps = a.stepTotal ? `${a.stepDone ?? 0}/${a.stepTotal}` : a.requests ? `${a.requests} ${t.reqs}` : ''
+        const tail = [steps, usd(a.costUsd)].filter(Boolean).join(' · ')
+        const word = tierWord(a.type)
+        const taskW = Math.max(6, cols - word.length - tail.length - 8)
+        rows.push(
+          <Box key={`a:${a.id}`} flexDirection="row" columnGap={1} flexWrap="nowrap" overflow="hidden">
+            <Text color={color}>{` ${glyph}`}</Text>
+            <Text color={color} bold>{word}</Text>
+            <Text wrap="truncate-end" dimColor={a.status !== 'running'}>{fit(a.description || a.type, taskW)}</Text>
+            <Text dimColor>{tail}</Text>
+          </Box>,
+        )
+      }
+      if (shown.length < visible.length) rows.push(<Text key="more" dimColor>{`  +${visible.length - shown.length}`}</Text>)
     }
-    if (shown.length < visible.length) rows.push(<Text key="more" dimColor>{`  +${visible.length - shown.length}`}</Text>)
 
     return (
-      <Box flexDirection="column" paddingX={1} {...(frame ? { borderStyle: 'round', borderColor: frame } : {})}>
+      <Box flexDirection="column" paddingX={1} rowGap={Svg ? 1 : 0} {...(frame ? { borderStyle: 'round', borderColor: frame } : {})}>
         {top}
         {rows}
       </Box>
@@ -711,70 +813,191 @@ export const register: Register = (on, options) => {
   // --- The pane (/painel) ----------------------------------------------------------------
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const ui = $.ui.resolve(e)
+    const { Box, Text, Button } = ui
     const t = tr()
     const s = await read($, stats)
     const c = await read($, cache)
+    const pref = await read($, prefs)
     await read($, now)
     const at = await $.clock.now()
-    const allPlans = await read($, plans)
+    const allPlans = [...(await read($, plans))].sort((a, b) => b.touchedAt - a.touchedAt)
     const allAgents = await read($, agents)
+    const plan = shownPlan(allPlans, s) ?? allPlans[0]
+    const runningList = allAgents.filter(a => a.status === 'running').reverse()
+    const finishedList = allAgents.filter(a => a.status !== 'running').reverse()
+    const planned = plan ? plannedLeft(plan, allAgents) : []
+    const agentCost = allAgents.reduce((n, a) => n + a.costUsd, 0)
+    const agentTokens = allAgents.reduce((n, a) => n + a.tokens, 0)
+    const start = allAgents.length ? Math.min(...allAgents.map(a => a.startedAt)) : at
+    const end = allAgents.length ? Math.max(...allAgents.map(a => a.endedAt ?? Math.max(at, a.startedAt))) : at
+    const left = secondsLeft(c, at)
+    const level = left === null ? null : cacheLevel(left, c.ttl)
+    const clockColor = level === 'alert' || level === 'expired' ? ALERT : level === 'warn' ? WARN : CACHE
+    const words = {
+      tier: (type: string) => tierWord(type),
+      model: '',
+      ctx: t.context,
+      failed: t.failed,
+      after: t.after,
+    }
+    const runWords = (a: AgentRun) => ({ ...words, model: `${modelName(a.model)}${a.effort ? ` · ${a.effort}` : ''}` })
+    const tierModel = (tier: string) => TIER_MODEL[tier] ?? ''
+    const isCompact = pref.isCompact === true
+    const isDoneCollapsed = pref.isDoneCollapsed === true
+
+    const toggleCompact = (
+      <Button key="compact" label={isCompact ? t.expand : t.collapse} plain onPress={() => update($, prefs, p => ({ ...p, isCompact: !p.isCompact }))} />
+    )
+    const toggleDone = (
+      <Button
+        key="done"
+        label={`${isDoneCollapsed ? '▸' : '▾'} ${t.finished} · ${finishedList.length}`}
+        plain
+        onPress={() => update($, prefs, p => ({ ...p, isDoneCollapsed: !p.isDoneCollapsed }))}
+      />
+    )
+
+    if (e.surface !== 'terminal' && 'Svg' in ui) {
+      const { Svg } = ui
+      const W = Math.max(240, Math.min(900, (e.props.bodyColumns || 40) * 8 - 8))
+      const section = (key: string, text: string) => (
+        <Text key={key} dimColor>
+          {text}
+        </Text>
+      )
+      const sessionTiles = tilesSvg(W, '', [
+        { label: t.turn, value: String(s.turn) },
+        { label: t.speed, value: s.speed === null ? '—' : `${s.speed} tok/s` },
+        { label: t.sessionCost, value: usd(s.total) },
+        { label: t.context, value: `${s.context}%` },
+      ])
+      const cacheTiles = tilesSvg(W, `${t.cacheH} · ${c.ttl}`, [
+        { label: t.left, value: left === null ? '—' : left === 0 ? t.expired : fmtClock(left), color: left === null ? undefined : clockColor },
+        { label: t.lastHit, value: c.last ? `${Math.round(hitRatio(c.last) * 100)}%` : '—' },
+        { label: `${t.read} · ${t.wrote}`, value: c.last ? `${fmtTokens(c.last.read)} · ${fmtTokens(c.last.write)}` : '—' },
+      ])
+      const table = cacheTableSvg(W, c.turns.slice(-12), {
+        turn: t.turnCol,
+        reqs: t.reqs,
+        read: t.read,
+        wrote: t.wrote,
+        fresh: t.fresh,
+        hit: t.hit,
+        none: t.noRequests,
+      })
+      const others = allPlans.filter(p => p !== plan).slice(0, 3)
+      return (
+        <Box flexDirection="column" rowGap={1}>
+          <Svg key="agents-head" source={tilesSvg(W, plan?.title ?? t.agentsH, [
+            { label: t.cost, value: `≈${usd(agentCost)}` },
+            { label: t.tokens, value: fmtTokens(agentTokens) },
+            { label: t.time, value: fmtClock((end - start) / 1000) },
+          ])} alt={`${plan?.title ?? t.agentsH}: ≈${usd(agentCost)}, ${fmtTokens(agentTokens)} tokens`} width={W} height={tilesHeight(plan?.title ?? t.agentsH)} />
+          {plan ? (() => {
+            const { done, total } = progressOf(plan)
+            const drawn = planSvg(W, plan, done, total, isCompact ? [] : stepsOf(plan))
+            return <Svg key="plan" source={drawn.source} alt={`${plan.title}: ${done}/${total}`} width={W} height={drawn.height} />
+          })() : null}
+          {toggleCompact}
+          {allAgents.length === 0 && planned.length === 0 ? <Text key="empty" dimColor>{t.noAgents}</Text> : null}
+          {runningList.length > 0 ? section('h-run', `${t.running} · ${runningList.length}`) : null}
+          {runningList.map(a => (
+            <Svg key={a.id} source={agentSvg(W, a, at, runWords(a))} alt={`${a.description}: ${modelName(a.model)}`} width={W} height={AGENT_H} />
+          ))}
+          {finishedList.length > 0 ? toggleDone : null}
+          {isDoneCollapsed
+            ? null
+            : finishedList.map(a => (
+                <Svg key={a.id} source={agentSvg(W, a, at, runWords(a))} alt={`${a.description}: ${a.status}`} width={W} height={AGENT_H} />
+              ))}
+          {planned.length > 0 ? section('h-plan', `${t.plannedH} · ${planned.length}`) : null}
+          {planned.map(p => (
+            <Svg key={`plan-${p.n}`} source={plannedSvg(W, p.n, p, { ...words, model: tierModel(p.tier) })} alt={`${p.n}. ${p.title}`} width={W} height={PLANNED_H} />
+          ))}
+          {others.map(p => {
+            const { done, total } = progressOf(p)
+            const drawn = planSvg(W, p, done, total, [])
+            return <Svg key={`other-${p.id}`} source={drawn.source} alt={`${p.title}: ${done}/${total}`} width={W} height={drawn.height} />
+          })}
+          <Svg key="session" source={sessionTiles} alt={`${t.session}: ${s.turn} ${t.turns}, ${usd(s.total)}`} width={W} height={tilesHeight('')} />
+          <Svg key="cache-tiles" source={cacheTiles} alt={t.cacheH} width={W} height={tilesHeight('x')} />
+          <Svg key="cache-table" source={table.source} alt={t.perTurn} width={W} height={table.height} />
+          <Text key="estimate" dimColor>
+            {t.estimate}
+          </Text>
+        </Box>
+      )
+    }
+
+    // Terminal: the same content in text rows.
     const width = Math.max(30, e.props.bodyColumns - 1)
-    // HTML collapses runs of spaces; a no-break space keeps the columns.
-    const sp = (x: string) => (e.surface === 'terminal' ? x : x.replace(/ /g, ' '))
     const head = (key: string, text: string) => (
       <Text key={key} bold color="cyan">
-        {sp(text)}
+        {text}
       </Text>
     )
     const cell = (key: string, w: number, text: string, color?: string, bold = false) => (
       <Box key={key} width={w} flexShrink={0} justifyContent="flex-end">
         <Text color={color} bold={bold} dimColor={!color}>
-          {sp(text)}
+          {text}
         </Text>
       </Box>
     )
-
-    const left = secondsLeft(c, at)
-    const level = left === null ? null : cacheLevel(left, c.ttl)
-    const clockColor = level === 'alert' || level === 'expired' ? ALERT : level === 'warn' ? WARN : CACHE
     const hitColor = (pct: number) => (pct >= 80 ? 'green' : pct >= 40 ? 'yellow' : 'red')
     const turnRows = c.turns.slice(-Math.max(3, (e.viewport?.rows ?? 30) - 24))
-    const agentCost = allAgents.reduce((n, a) => n + a.costUsd, 0)
-
-    const plannedLeft = (p: Plan) => {
-      const started = new Set(allAgents.map(a => a.description.trim().toLowerCase()))
-      return p.tasks.filter(task => !started.has(task.title.trim().toLowerCase()))
+    const agentLine = (a: AgentRun) => {
+      const color = a.status === 'done' ? DONE : a.status === 'failed' ? ALERT : colorOf(tierOf(a.type) || 'other')
+      const glyph = a.status === 'done' ? '✓' : a.status === 'failed' ? '✗' : '●'
+      const ctx = a.contextMax ? Math.min(100, Math.round((a.contextTokens / a.contextMax) * 100)) : 0
+      const steps = a.stepTotal ? `${a.stepDone ?? 0}/${a.stepTotal}${a.stepNote ? ` ${a.stepNote}` : ''}` : `${a.requests} ${t.reqs}`
+      const time = fmtClock(((a.endedAt ?? Math.max(at, a.startedAt)) - a.startedAt) / 1000)
+      return (
+        <Box key={`g:${a.id}`} flexDirection="column">
+          <Text color={color} bold>
+            {fit(`${glyph} ${tierWord(a.type)} · ${a.description || a.type}`, width)}
+          </Text>
+          <Text dimColor>{fit(`   ${modelName(a.model)}${a.effort ? ` · ${a.effort}` : ''} · ${steps} · ${t.context} ${ctx}% · ${fmtTokens(a.tokens)} tok · ≈${usd(a.costUsd)} · ${time}`, width)}</Text>
+        </Box>
+      )
     }
 
     return (
       <Box flexDirection="column">
-        {head('h-session', `▤ ${t.session}`)}
-        <Text key="session">
-          {sp(
-            fit(
-              `${s.turn} ${t.turns} · ${t.speed} ${s.speed === null ? '—' : `${s.speed} tok/s`} · ${t.turnCost} ${s.turnCost === null ? '—' : usd(s.turnCost)} · ${t.sessionCost} ${usd(s.total)} · ${t.context} ${s.context}%`,
-              width,
-            ),
-          )}
-        </Text>
+        {head('h-agents', `◆ ${plan?.title ?? t.agentsH} · ≈${usd(agentCost)} · ${fmtTokens(agentTokens)} tok · ${fmtClock((end - start) / 1000)}`)}
+        {plan ? (
+          <Box key="plan" flexDirection="column">
+            <Text bold>{fit(`${plan.title} · ${progressOf(plan).done}/${progressOf(plan).total}${plan.note ? ` · ${plan.note}` : ''}`, width)}</Text>
+            {stepsOf(plan).map((st, i) => (
+              <Text key={`s:${i}`} color={st.status === 'active' ? ACCENT : st.status === 'error' ? ALERT : isFinished(st.status) ? DONE : undefined} dimColor={st.status === 'pending'}>
+                {fit(`  ${isFinished(st.status) ? '✓' : st.status === 'active' ? '▸' : st.status === 'error' ? '✗' : '·'} ${st.title}`, width)}
+              </Text>
+            ))}
+          </Box>
+        ) : null}
+        {allAgents.length === 0 && planned.length === 0 ? <Text key="empty" dimColor>{t.noAgents}</Text> : null}
+        {runningList.length > 0 ? <Text key="h-run" dimColor>{`${t.running} · ${runningList.length}`}</Text> : null}
+        {runningList.map(agentLine)}
+        {finishedList.length > 0 ? toggleDone : null}
+        {isDoneCollapsed ? null : finishedList.map(agentLine)}
+        {planned.length > 0 ? <Text key="h-plan" dimColor>{`${t.plannedH} · ${planned.length}`}</Text> : null}
+        {planned.map(p => (
+          <Text key={`q:${p.n}`} dimColor>
+            {fit(`  ◷ ${p.n}. ${p.title} · ${tierWord(`savvy-${p.tier}`)}${p.after.length ? ` · ${t.after} ${p.after.join(', ')}` : ''}`, width)}
+          </Text>
+        ))}
 
         <Box key="cache" flexDirection="column" marginTop={1}>
           {head('h-cache', `⧗ ${t.cacheH}`)}
           <Text key="ttl" dimColor>
-            {sp(fit(`${c.ttl} ${t.lifetime} (${c.ttlSource})`, width))}
+            {fit(`${c.ttl} ${t.lifetime} (${c.ttlSource})`, width)}
           </Text>
           <Text key="clock" bold color={clockColor}>
-            {sp(left === null ? '⏱ --:--' : left === 0 ? `⏱ 0:00 · ${t.expired}` : `⏱ ${fmtClock(left)}  ${bar(left / (ttlMs(c.ttl) / 1000), Math.min(30, width - 12))}`)}
+            {left === null ? '⏱ --:--' : left === 0 ? `⏱ 0:00 · ${t.expired}` : `⏱ ${fmtClock(left)}  ${bar(left / (ttlMs(c.ttl) / 1000), Math.min(30, width - 12))}`}
           </Text>
           {c.last ? (
             <Text key="last">
-              {sp(
-                fit(
-                  `${modelName(c.last.model)} · ${Math.round(hitRatio(c.last) * 100)}% ${t.hit} · ${t.read} ${fmtTokens(c.last.read)} · ${t.wrote} ${fmtTokens(c.last.write)} · ${t.fresh} ${fmtTokens(c.last.fresh)}`,
-                  width,
-                ),
-              )}
+              {fit(`${modelName(c.last.model)} · ${Math.round(hitRatio(c.last) * 100)}% ${t.hit} · ${t.read} ${fmtTokens(c.last.read)} · ${t.wrote} ${fmtTokens(c.last.write)} · ${t.fresh} ${fmtTokens(c.last.fresh)}`, width)}
             </Text>
           ) : null}
           <Box key="thead" flexDirection="row" columnGap={1} marginTop={1}>
@@ -787,7 +1010,7 @@ export const register: Register = (on, options) => {
           </Box>
           {turnRows.length === 0 ? (
             <Text key="none" dimColor>
-              {sp(t.noRequests)}
+              {t.noRequests}
             </Text>
           ) : null}
           {turnRows.map(row => {
@@ -804,69 +1027,9 @@ export const register: Register = (on, options) => {
             )
           })}
         </Box>
-
-        <Box key="plans" flexDirection="column" marginTop={1}>
-          {head('h-plans', `● ${t.plans}`)}
-          {allPlans.length === 0 ? (
-            <Text key="none" dimColor>
-              {sp(t.noPlan)}
-            </Text>
-          ) : null}
-          {[...allPlans]
-            .sort((a, b) => b.touchedAt - a.touchedAt)
-            .slice(0, 5)
-            .map(p => {
-              const { done, total } = progressOf(p)
-              const color = p.state === 'done' ? DONE : p.state === 'error' ? ALERT : p.state === 'needs_input' ? WARN : ACCENT
-              return (
-                <Box key={`p:${p.id}`} flexDirection="column">
-                  <Text bold color={color}>
-                    {sp(fit(`${p.title} · ${done}/${total}${p.note ? ` · ${p.note}` : ''}`, width))}
-                  </Text>
-                  {stepsOf(p).map((st, i) => (
-                    <Text key={`s:${i}`} color={st.status === 'active' ? ACCENT : st.status === 'error' ? ALERT : isFinished(st.status) ? DONE : undefined} dimColor={st.status === 'pending'}>
-                      {sp(fit(`  ${isFinished(st.status) ? '✓' : st.status === 'active' ? '▸' : st.status === 'error' ? '✗' : '·'} ${st.title}`, width))}
-                    </Text>
-                  ))}
-                  {plannedLeft(p).map((task, i) => (
-                    <Text key={`q:${i}`} dimColor>
-                      {sp(fit(`  ◷ ${task.tier ? (t.tiers[task.tier] ?? task.tier) : ''} ${task.title} · ${t.planned}`, width))}
-                    </Text>
-                  ))}
-                </Box>
-              )
-            })}
-        </Box>
-
-        <Box key="agents" flexDirection="column" marginTop={1}>
-          {head('h-agents', `◆ ${t.agentsH} · ${allAgents.length} · ${usd(agentCost)}`)}
-          {allAgents.length === 0 ? (
-            <Text key="none" dimColor>
-              {sp(t.noAgents)}
-            </Text>
-          ) : null}
-          {[...allAgents].reverse().map(a => {
-            const color = a.status === 'done' ? DONE : a.status === 'failed' ? ALERT : (TIER_COLOR[tierOf(a.type)] ?? ACCENT)
-            const glyph = a.status === 'done' ? '✓' : a.status === 'failed' ? '✗' : '●'
-            const ctx = a.contextMax ? Math.min(100, Math.round((a.contextTokens / a.contextMax) * 100)) : 0
-            const steps = a.stepTotal ? `${a.stepDone ?? 0}/${a.stepTotal}${a.stepNote ? ` ${a.stepNote}` : ''}` : `${a.requests} ${t.reqs}`
-            const time = fmtClock(((a.endedAt ?? Math.max(at, a.startedAt)) - a.startedAt) / 1000)
-            return (
-              <Box key={`g:${a.id}`} flexDirection="column">
-                <Text color={color} bold>
-                  {sp(fit(`${glyph} ${tierWord(a.type)} · ${a.description || a.type}`, width))}
-                </Text>
-                <Text dimColor>
-                  {sp(fit(`   ${modelName(a.model)}${a.effort ? ` · ${a.effort}` : ''} · ${steps} · ${t.context} ${ctx}% · ${fmtTokens(a.tokens)} tok · ${usd(a.costUsd)} · ${time}`, width))}
-                </Text>
-              </Box>
-            )
-          })}
-          <Text key="estimate" dimColor>
-            {sp(fit(t.estimate, width))}
-          </Text>
-        </Box>
-
+        <Text key="session" dimColor>
+          {fit(`${t.session}: ${s.turn} ${t.turns} · ${s.speed === null ? '—' : `${s.speed} tok/s`} · ${t.turnCost} ${s.turnCost === null ? '—' : usd(s.turnCost)} · ${t.sessionCost} ${usd(s.total)} · ${t.context} ${s.context}%`, width)}
+        </Text>
         <Box key="foot" marginTop={1}>
           <Button key="painel-close" label={t.close} onPress={() => void togglePane($, false)} />
         </Box>

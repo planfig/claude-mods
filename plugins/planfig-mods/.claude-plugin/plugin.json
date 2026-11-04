@@ -1,6 +1,6 @@
 {
   "name": "planfig-mods",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "One pack of Claude Code mods: the painel (one band above the prompt with turn, speed, cost, context, prompt-cache countdown, plan and subagents, plus a /painel detail pane), the savvy-flow-plus orchestrator with five tiered workers, and a codex skill.",
   "author": { "name": "planfig", "url": "https://github.com/planfig" },
   "homepage": "https://github.com/planfig/claude-mods",

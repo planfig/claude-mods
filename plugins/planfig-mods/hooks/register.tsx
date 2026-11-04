@@ -97,7 +97,7 @@ const now = atom({ plugin: 'planfig-mods', key: 'now' } as const, 0)
 
 const MUTED_TEXT = '#8a8f8c'
 // What each savvy tier runs on, for planned tasks with no run yet.
-const TIER_MODEL: Record<string, string> = { fable: 'Fable · high', heavy: 'Opus · xhigh', careful: 'Opus · high', medium: 'Opus · medium', light: 'Opus · low' }
+const TIER_MODEL: Record<string, string> = { fable: '5.1 · high', heavy: 'Opus · xhigh', careful: 'Opus · high', medium: 'Opus · medium', light: 'Opus · low' }
 
 // Responses shorter than this are mostly tool-call stubs; one that arrived in one burst cannot be timed.
 const MIN_TOKENS = 20
